@@ -29,11 +29,11 @@ void setup() {
   new SpanAccessory(); 
   
     new Service::AccessoryInformation(); 
-      new Characteristic::Name("GateDoor"); 
+      new Characteristic::Name("Ворота"); 
       new Characteristic::Manufacturer("Danil"); 
       new Characteristic::SerialNumber("0000002"); 
       new Characteristic::Model("3 key model"); 
-      new Characteristic::FirmwareRevision("0.0.1"); 
+      new Characteristic::FirmwareRevision("0.0.2"); 
       new Characteristic::Identify();            
       
     new Service::HAPProtocolInformation();      
@@ -44,11 +44,11 @@ void setup() {
   new SpanAccessory(); 
   
     new Service::AccessoryInformation(); 
-      new Characteristic::Name("Lock"); 
+      new Characteristic::Name("Калитка"); 
       new Characteristic::Manufacturer("Danil"); 
       new Characteristic::SerialNumber("0000002"); 
       new Characteristic::Model("3 key model"); 
-      new Characteristic::FirmwareRevision("0.0.1"); 
+      new Characteristic::FirmwareRevision("0.0.2"); 
       new Characteristic::Identify();            
       
     new Service::HAPProtocolInformation();      

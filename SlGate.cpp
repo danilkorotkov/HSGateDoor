@@ -20,6 +20,10 @@ int ButtonArray[3];
 bool isTimered = false;
 hw_timer_t * ButtonTimer = NULL;
 portMUX_TYPE DoortimerMux = portMUX_INITIALIZER_UNLOCKED;
+
+int OpenPin     = 18;                                       
+int ClosePin    = 19;
+int StopPin     = 21;
   
 void IRAM_ATTR isr(void* arg) {
     Sensor* s = static_cast<Sensor*>(arg);
@@ -47,7 +51,7 @@ SL_GATE::SL_GATE() : Service::GarageDoorOpener(){
   TargetDoorState =   new Characteristic::TargetDoorState();
   ObstructionDetected=new Characteristic::ObstructionDetected();
   Name=new Characteristic::Name("Gate");
-  GateDoor *GatePosition;  
+  //GateDoor *GatePosition;  
                          
   pinMode(OpenPin,OUTPUT); 
   digitalWrite(OpenPin,LOW);
@@ -77,6 +81,8 @@ SL_GATE::SL_GATE() : Service::GarageDoorOpener(){
 } // end constructor
 
 void SL_GATE::PollCurrentState(){
+    LOG1("polling...\n");
+  
     if (digitalRead(ClSensorPin.PIN)      == SENSOR_CLOSED &&  CurrentDoorState-> getVal() !=CURRENT_DOOR_STATE_CLOSED)        
                                                               {
                                                               ClSensorPin.stableState = SENSOR_CLOSED;
@@ -89,11 +95,16 @@ void SL_GATE::PollCurrentState(){
                                                               FullyOpened();
                                                               }
     
-    else if                                                   (CurrentDoorState-> getVal() != CURRENT_DOOR_STATE_OPEN)   
+    else if                                                   (CurrentDoorState-> getVal() != CURRENT_DOOR_STATE_OPEN || GatePosition->PositionState->getVal() != DOOR_STOPPED)   
                                                               {CurrentDoorState-> setVal(CURRENT_DOOR_STATE_OPEN);   
                                                               TargetDoorState->   setVal(TARGET_DOOR_STATE_OPEN);
                                                               OpSensorPin.stableState = SENSOR_RELEASED; 
                                                               ClSensorPin.stableState = SENSOR_RELEASED;
+
+                                                              GatePosition->TargetPosition->setVal(50);
+                                                              GatePosition->CurrentPosition->setVal(50);
+                                                              GatePosition->PositionState->setVal(DOOR_STOPPED);
+                                                              GatePosition->valid = false;
                                                               }
     
     if (digitalRead(ObSensorPin.PIN)      == SENSOR_CLOSED && !ObstructionDetected->getVal())        
@@ -103,38 +114,27 @@ void SL_GATE::PollCurrentState(){
                                                               GatePosition->ObstructionDetected->setVal(true);
                                                               }
     
+  LOG1("polling over\n");
 }
 
 boolean SL_GATE::update(){            
 
     if(TargetDoorState->getNewVal()==TARGET_DOOR_STATE_OPEN &&
        CurrentDoorState->getVal() != CURRENT_DOOR_STATE_OPENING){ 
-                                                              
-                                                              
+                                                                                                                     
       LOG1("-----------Opening Gate----------\n");
-      CurrentDoorState->setVal(CURRENT_DOOR_STATE_OPENING);   // set the current-state value to 2, which means "opening"
-          
-      digitalWrite(ClosePin,LOW);
-      digitalWrite(OpenPin,HIGH);
-      CycleTimeBegin = millis();    
-  
-      initTimer();
-      
+      FullyOpenExtern();
+      Open();
     
     } else if(TargetDoorState->getNewVal()==TARGET_DOOR_STATE_CLOSED &&
               CurrentDoorState->getVal() != CURRENT_DOOR_STATE_CLOSING){
 
         // анализ препятствия
         if (!ObstructionDetected->getVal()){
-          LOG1("----------Closing Gate----------\n");                                 // else the target-state value is set to 1, and HomeKit is requesting the door to be in the closed position
-          CurrentDoorState->setVal(CURRENT_DOOR_STATE_CLOSING);   // set the current-state value to 3, which means "closing"         
-        
-          digitalWrite(OpenPin,LOW);
-          digitalWrite(ClosePin,HIGH);
-          CycleTimeBegin = millis();
-  
-          initTimer();  
-
+          LOG1("----------Closing Gate----------\n");                                
+          FullyCloseExtern();
+          Close();
+          
         } else if (CurrentDoorState->getVal() == CURRENT_DOOR_STATE_OPENING || CurrentDoorState->getVal() == CURRENT_DOOR_STATE_OPEN) 
                   {TargetDoorState->setVal(TARGET_DOOR_STATE_OPEN);}
 
@@ -142,7 +142,7 @@ boolean SL_GATE::update(){
     
     LOG1("----------UpdateOver----------\n");
     CycleTimeBegin = millis();
-    return(true);                                   // return true to indicate the update was successful (otherwise create code to return false if some reason you could not turn on the LED)
+    return(true);                                  
   
 } // update
 
@@ -171,19 +171,23 @@ void SL_GATE::loop(){
                                                               // обновляем стабильное
                                                               ClSensorPin.stableState = SENSOR_CLOSED;       
                                                               // устанавливаем состояние Закрыто
-                                                              FullyClosed();}
+                                                              FullyClosed();
+                                                              }
         
         if (digitalRead(ClSensorPin.PIN) == SENSOR_RELEASED && ClSensorPin.stableState == SENSOR_CLOSED) {
                                                               LOG1("----------ClSensorPin.SENSOR_RELEASED----------\n");  
-                                                              ClSensorPin.stableState = SENSOR_RELEASED;
+                                                              
                                                               // если состояние итак открывается, то ничего менять не будем
-                                                              // по сути игнорим открывание через HAP и реагируем на брелок
+                                                              // по сути игнорим открывание через HAP и реагируем только на брелок
                                                               if ( CurrentDoorState->getVal() != CURRENT_DOOR_STATE_OPENING ){ 
-                                                              CurrentDoorState->setVal(CURRENT_DOOR_STATE_OPENING);
-                                                              TargetDoorState->setVal(TARGET_DOOR_STATE_OPEN);}}
+                                                                FullyOpenExtern();
+                                                                TargetDoorState->setVal(TARGET_DOOR_STATE_OPEN);
+                                                              }
+                                                              ClSensorPin.stableState = SENSOR_RELEASED;
+                                                              }
       
       } else if ( ((millis() - ClPortPollBegin)>PortPollTimeout) && ClSensorPin.stableState == SENSOR_CLOSED && CurrentDoorState->getVal() != CURRENT_DOOR_STATE_CLOSED ){
-                                                              CurrentDoorState->setVal(CURRENT_DOOR_STATE_CLOSED);}
+                                                              FullyClosed();}
       
       if (OpSensorPin.changed && (millis() - OpPortPollBegin)>PortPollTimeout) {
         OpSensorPin.changed = false;
@@ -196,15 +200,18 @@ void SL_GATE::loop(){
         
         if (digitalRead(OpSensorPin.PIN) == SENSOR_RELEASED && OpSensorPin.stableState == SENSOR_CLOSED) {
                                                               LOG1("----------OpSensorPin.SENSOR_RELEASED----------\n");
-                                                              OpSensorPin.stableState = SENSOR_RELEASED;
+                                                              
                                                               // если состояние итак закрывается, то ничего менять не будем
                                                               // по сути игнорим закрывание через HAP и реагируем на брелок
                                                               if (CurrentDoorState->getVal() != CURRENT_DOOR_STATE_CLOSING){ 
-                                                              CurrentDoorState->setVal(CURRENT_DOOR_STATE_CLOSING);
-                                                              TargetDoorState->setVal(TARGET_DOOR_STATE_CLOSED);}}     
+                                                                FullyCloseExtern();
+                                                                TargetDoorState->setVal(TARGET_DOOR_STATE_CLOSED);
+                                                              }
+                                                              OpSensorPin.stableState = SENSOR_RELEASED;
+                                                              }     
       
       } else if ( ((millis() - OpPortPollBegin)>PortPollTimeout) && OpSensorPin.stableState == SENSOR_CLOSED && CurrentDoorState->getVal() != CURRENT_DOOR_STATE_OPEN ){
-                                                              CurrentDoorState->setVal(CURRENT_DOOR_STATE_OPEN);}
+                                                              FullyOpened();}
 
       if (ObSensorPin.changed && (millis() - ObPortPollBegin)>PortPollTimeout) {
         ObSensorPin.changed = false;
@@ -250,7 +257,30 @@ void SL_GATE::FullyOpened(){
   
   GatePosition->CurrentPosition->setVal(FULLY_OPENED);
   GatePosition->TargetPosition->setVal(FULLY_OPENED);
-  GatePosition->PositionState->setVal(2);  
+  GatePosition->PositionState->setVal(DOOR_STOPPED);
+  GatePosition->valid = true;
+}
+
+void SL_GATE::FullyOpenExtern(){
+  CurrentDoorState->setVal(CURRENT_DOOR_STATE_OPENING);
+          
+  GatePosition->PositionState ->setVal(DOOR_OPENING);
+  GatePosition->TargetPosition->setVal(FULLY_OPENED);
+  GatePosition->GateDoorState.Direction = 1;
+  GatePosition->GateDoorState.updateTime = millis();
+      
+  if (ClSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;}
+}
+
+void SL_GATE::FullyCloseExtern(){
+  CurrentDoorState->setVal(CURRENT_DOOR_STATE_CLOSING);
+
+  GatePosition->PositionState ->setVal(DOOR_CLOSING);
+  GatePosition->TargetPosition->setVal(FULLY_CLOSED);    
+  GatePosition->GateDoorState.Direction = 0;
+  GatePosition->GateDoorState.updateTime = millis();
+          
+  if (OpSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;} 
 }
 
 void SL_GATE::FullyClosed(){
@@ -259,20 +289,44 @@ void SL_GATE::FullyClosed(){
   
   GatePosition->CurrentPosition->setVal(FULLY_CLOSED);
   GatePosition->TargetPosition->setVal(FULLY_CLOSED);
-  GatePosition->PositionState->setVal(2);  
+  GatePosition->PositionState->setVal(DOOR_STOPPED);
+  GatePosition->valid = true;    
 }
 
+void SL_GATE::Open(){
+  digitalWrite(ClosePin,LOW);
+  digitalWrite(StopPin,LOW);
+  digitalWrite(OpenPin,HIGH);
+  
+  initTimer();  
+}
+
+void SL_GATE::Close(){
+  digitalWrite(OpenPin,LOW);
+  digitalWrite(StopPin,LOW);
+  digitalWrite(ClosePin,HIGH);
+  
+  initTimer();  
+}
+
+void SL_GATE::Stop(){
+  digitalWrite(OpenPin,LOW);
+  digitalWrite(ClosePin,LOW);
+  digitalWrite(StopPin,HIGH);
+  
+  initTimer();    
+}
 //////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////
 GateDoor::GateDoor(SL_GATE* gate) : Service::Door(){
-      CurrentPosition      = new Characteristic::CurrentPosition(GateDoorState.CurrentPosition);
-      TargetPosition       = new Characteristic::TargetPosition(GateDoorState.CurrentPosition);
+      CurrentPosition      = new Characteristic::CurrentPosition(50);
+      TargetPosition       = new Characteristic::TargetPosition(50);
       PositionState        = new Characteristic::PositionState(2);
       ObstructionDetected  = new Characteristic::ObstructionDetected(false);
-      HoldPosition         = new Characteristic::HoldPosition(false);
+
       this->gate=gate;
       NVS_init();
-      //return(this);
+      LOG1("Constructing Door…\n");
    
 }
 
@@ -281,10 +335,138 @@ void GateDoor::NVS_init(){
   nvs_open("GATE",NVS_READWRITE,&gateNVS);
       
   if(!nvs_get_blob(gateNVS,"GATEDATA",NULL,&nvslen)) {                       // if found GATE data in NVS
-  nvs_get_blob(gateNVS,"GATEDATA",&GateDoorState,&nvslen); }              // retrieve data  
+    LOG1("----------Found GATE storage----------\n");
+    nvs_get_blob(gateNVS,"GATEDATA",&GateDoorState,&nvslen); }              // retrieve data  
 }
 
-boolean GateDoor :: update(){            
+boolean GateDoor :: Calibrate(){
+  uint32_t StartTime, cycleTime;
+  uint32_t TimeOut = 150*1000;
+  
+
+  //phase 1
+  gate->ClSensorPin.changed = false;
+  gate->OpSensorPin.changed = false;
+  StartTime = millis();
+  if (digitalRead(gate->ClSensorPin.PIN) == SENSOR_RELEASED) {
+    gate->Close();
+    while ( gate->ClSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
+    if ( (millis() - StartTime) > TimeOut ){return(false);}
+  }
+
+  //phase 2
+  gate->ClSensorPin.changed = false;
+  gate->OpSensorPin.changed = false;
+  
+  if ( digitalRead(gate->ClSensorPin.PIN) == SENSOR_CLOSED ) {
+    gate->Open();
+    cycleTime = millis();
+    
+    while ( gate->OpSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
+    
+    if ( (millis() - StartTime) > TimeOut ){return(false);}
+    
+    if ( digitalRead(gate->OpSensorPin.PIN) == SENSOR_CLOSED ){
+      GateDoorState.openTime = millis() - cycleTime;
+    }else {return(false);}
+  } else {return(false);}
+
+  //phase 3
+  gate->ClSensorPin.changed = false;
+  gate->OpSensorPin.changed = false;
+
+  if ( digitalRead(gate->OpSensorPin.PIN) == SENSOR_CLOSED ){
+    gate->Close();
+    cycleTime = millis();
+
+    while ( gate->ClSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
+    if ( (millis() - StartTime) > TimeOut ){return(false);}
+
+      if ( digitalRead(gate->ClSensorPin.PIN) == SENSOR_CLOSED ){
+        GateDoorState.closeTime = millis() - cycleTime;
+        gate->ClSensorPin.changed = false;
+        gate->OpSensorPin.changed = false;
+
+        nvs_set_blob(gateNVS,"GATEDATA",&GateDoorState,sizeof(GateDoorState));
+        nvs_commit(gateNVS);
+        
+        return(true);
+        
+      }else {return(false);}
+    
+  }else {return(false);}
+  
+  
+  return(false);
+}
+
+void GateDoor::NothingTODO(){
+  PositionState->setVal(DOOR_STOPPED);
+  TargetPosition->setVal(CurrentPosition->getVal());  
+}
+
+boolean GateDoor :: update(){
+  gate->CycleTimeBegin = millis();
+  
+  if (GateDoorState.openTime == 0 || GateDoorState.closeTime == 0) {
+    if (!Calibrate()) {
+      NothingTODO();
+      return (true);
+    }
+  } 
+
+  //open
+  if ( TargetPosition->getNewVal() > CurrentPosition->getVal() ){
+    //openning
+    
+    PositionState->setVal(DOOR_OPENING);
+    
+    gate->CurrentDoorState->  setVal(CURRENT_DOOR_STATE_OPENING);
+    gate->TargetDoorState->   setVal(TARGET_DOOR_STATE_OPEN);
+
+    if (valid){
+      cycleTime = GateDoorState.openTime * TargetPosition->getNewVal() / CurrentPosition->getVal();
+    } else {
+      cycleTime = 0;
+      TargetPosition->setVal(100);
+    }
+
+    gate->Open();
+    GateDoorState.Direction = 1; 
+  }
+
+  //close
+  if ( TargetPosition->getNewVal() < CurrentPosition->getVal() && !ObstructionDetected->getVal()){
+    //closing 
+    PositionState->setVal(DOOR_CLOSING);
+    gate->CurrentDoorState->  setVal(CURRENT_DOOR_STATE_CLOSING);
+    
+    if (TargetPosition->getNewVal() == 0) {
+      gate->TargetDoorState->   setVal(TARGET_DOOR_STATE_CLOSED);
+    } else {
+      gate->TargetDoorState->   setVal(TARGET_DOOR_STATE_OPEN);
+    }
+
+    if (valid){
+      cycleTime = GateDoorState.closeTime * TargetPosition->getNewVal() / CurrentPosition->getVal();
+    } else {
+      cycleTime = 0;
+      TargetPosition->setVal(0);
+    }
+    
+    gate->Close();
+    GateDoorState.Direction = 0;
+    
+  } else {
+    NothingTODO();
+  }
+  
+  //
+  if ( TargetPosition->getNewVal() == CurrentPosition->getVal() ){
+    NothingTODO();
+  }
+  
+  GateDoorState.updateTime = millis();          
   return(true);                                   
 } // update
     

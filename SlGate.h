@@ -5,7 +5,7 @@
 #include <nvs.h>
 #include <nvs_flash.h>
 
-// Possible values for characteristic CURRENT_DOOR_STATE:
+// Possible values for characteristic garage
 #define CURRENT_DOOR_STATE_OPEN    0
 #define CURRENT_DOOR_STATE_CLOSED  1
 #define CURRENT_DOOR_STATE_OPENING 2
@@ -16,11 +16,16 @@
 #define TARGET_DOOR_STATE_OPEN    0
 #define TARGET_DOOR_STATE_CLOSED  1
 #define TARGET_DOOR_STATE_UNKNOWN 255
+//position sensor
 #define SENSOR_CLOSED   0
 #define SENSOR_RELEASED 1
-
+//door
 #define FULLY_OPENED 100
 #define FULLY_CLOSED 0
+
+#define DOOR_CLOSING 0
+#define DOOR_OPENING 1
+#define DOOR_STOPPED 2
 
 struct SL_GATE;
 struct GateDoor;
@@ -37,19 +42,15 @@ struct Sensor {
 };
 
 struct CustomOpen {
-    uint32_t updateTime = 0;
-    bool fromZeroPos = false;
-    bool Direction = 0; // 0 - opening 1 - closing
-    uint32_t openTime = 0;
-    uint32_t closeTime = 0;
-    uint8_t CurrentPosition = 50; 
+    uint32_t  updateTime  = 0;
+    bool      fromZeroPos = false;
+    bool      Direction   = 0; // 1 - opening 0 - closing
+    uint32_t  openTime    = 0;
+    uint32_t  closeTime   = 0;
 };
 
 struct SL_GATE : Service::GarageDoorOpener {         // First we create a derived class from the HomeSpan 
 
-  int OpenPin     = 18;                                       // this variable stores the pin number defined 
-  int ClosePin    = 19;
-  int StopPin     = 21;
   struct Sensor OpSensorPin = {22, false, SENSOR_RELEASED};
   struct Sensor ClSensorPin = {23, false, SENSOR_RELEASED};
   struct Sensor ObSensorPin = {17, false, SENSOR_RELEASED};
@@ -72,19 +73,25 @@ struct SL_GATE : Service::GarageDoorOpener {         // First we create a derive
   void loop();
   void FullyOpened();
   void FullyClosed();
+  void FullyOpenExtern();
+  void FullyCloseExtern();
+  void Open();
+  void Close();
+  void Stop();
 };
 
 struct GateDoor : Service::Door{
   size_t nvslen;             // not used but required to read blobs from NVS
   static nvs_handle gateNVS;
-    
+  bool      valid       = false; // положение неизвестно   
   struct CustomOpen GateDoorState;
+  uint32_t cycleTime;
   
   SpanCharacteristic *CurrentPosition;
   SpanCharacteristic *TargetPosition;
   SpanCharacteristic *PositionState;
   SpanCharacteristic *ObstructionDetected;
-  SpanCharacteristic *HoldPosition;
+
   SL_GATE *gate;
    
     /*  PositionState
@@ -96,9 +103,12 @@ struct GateDoor : Service::Door{
   uint32_t CycleTimeBegin = millis();
   uint32_t PollTimeout = 10000;
   GateDoor(SL_GATE* gate);
-  void NVS_init();    
+  void NVS_init();
+  
   boolean update();
-  void loop();   
+  void loop();
+  boolean Calibrate();
+  void NothingTODO();   
 };
 
 ////////////////

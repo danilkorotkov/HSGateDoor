@@ -267,7 +267,7 @@ void SL_GATE::FullyOpenExtern(){
   GatePosition->PositionState ->setVal(DOOR_OPENING);
   GatePosition->TargetPosition->setVal(FULLY_OPENED);
   GatePosition->GateDoorState.Direction = 1;
-  GatePosition->GateDoorState.updateTime = millis();
+  GatePosition->updateTime = millis();
       
   if (ClSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;}
 }
@@ -278,7 +278,7 @@ void SL_GATE::FullyCloseExtern(){
   GatePosition->PositionState ->setVal(DOOR_CLOSING);
   GatePosition->TargetPosition->setVal(FULLY_CLOSED);    
   GatePosition->GateDoorState.Direction = 0;
-  GatePosition->GateDoorState.updateTime = millis();
+  GatePosition->updateTime = millis();
           
   if (OpSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;} 
 }
@@ -428,7 +428,7 @@ boolean GateDoor :: update(){
       cycleTime = GateDoorState.openTime * TargetPosition->getNewVal() / CurrentPosition->getVal();
     } else {
       cycleTime = 0;
-      TargetPosition->setVal(100);
+      TargetPosition->setVal(FULLY_OPENED);
     }
 
     gate->Open();
@@ -441,7 +441,7 @@ boolean GateDoor :: update(){
     PositionState->setVal(DOOR_CLOSING);
     gate->CurrentDoorState->  setVal(CURRENT_DOOR_STATE_CLOSING);
     
-    if (TargetPosition->getNewVal() == 0) {
+    if (TargetPosition->getNewVal() == FULLY_CLOSED) {
       gate->TargetDoorState->   setVal(TARGET_DOOR_STATE_CLOSED);
     } else {
       gate->TargetDoorState->   setVal(TARGET_DOOR_STATE_OPEN);
@@ -451,7 +451,8 @@ boolean GateDoor :: update(){
       cycleTime = GateDoorState.closeTime * TargetPosition->getNewVal() / CurrentPosition->getVal();
     } else {
       cycleTime = 0;
-      TargetPosition->setVal(0);
+      TargetPosition->setVal(FULLY_CLOSED);
+      gate->TargetDoorState->   setVal(TARGET_DOOR_STATE_CLOSED);
     }
     
     gate->Close();
@@ -466,7 +467,7 @@ boolean GateDoor :: update(){
     NothingTODO();
   }
   
-  GateDoorState.updateTime = millis();          
+  updateTime = millis();          
   return(true);                                   
 } // update
     

@@ -42,7 +42,7 @@ struct Sensor {
 };
 
 struct CustomOpen {
-    uint32_t  updateTime  = 0;
+    //uint32_t  updateTime  = 0;
     bool      fromZeroPos = false;
     bool      Direction   = 0; // 1 - opening 0 - closing
     uint32_t  openTime    = 0;
@@ -86,6 +86,7 @@ struct GateDoor : Service::Door{
   bool      valid       = false; // положение неизвестно   
   struct CustomOpen GateDoorState;
   uint32_t cycleTime;
+  uint32_t  updateTime  = 0;
   
   SpanCharacteristic *CurrentPosition;
   SpanCharacteristic *TargetPosition;

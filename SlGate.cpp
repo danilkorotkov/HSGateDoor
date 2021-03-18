@@ -268,8 +268,10 @@ void SL_GATE::FullyOpenExtern(){
   GatePosition->TargetPosition->setVal(FULLY_OPENED);
   GatePosition->GateDoorState.Direction = 1;
   GatePosition->updateTime = millis();
+  GatePosition->cycleTime = 0;
       
-  if (ClSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;}
+  if (ClSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;
+  }else {GatePosition->GateDoorState.fromZeroPos = false;}
 }
 
 void SL_GATE::FullyCloseExtern(){
@@ -279,8 +281,10 @@ void SL_GATE::FullyCloseExtern(){
   GatePosition->TargetPosition->setVal(FULLY_CLOSED);    
   GatePosition->GateDoorState.Direction = 0;
   GatePosition->updateTime = millis();
+  GatePosition->cycleTime = 0;
           
-  if (OpSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;} 
+  if (OpSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;
+  }else {GatePosition->GateDoorState.fromZeroPos = false;} 
 }
 
 void SL_GATE::FullyClosed(){
@@ -402,7 +406,8 @@ boolean GateDoor :: Calibrate(){
 
 void GateDoor::NothingTODO(){
   PositionState->setVal(DOOR_STOPPED);
-  TargetPosition->setVal(CurrentPosition->getVal());  
+  TargetPosition->setVal(CurrentPosition->getVal());
+  cycleTime = 0;  
 }
 
 boolean GateDoor :: update(){
@@ -472,13 +477,28 @@ boolean GateDoor :: update(){
 } // update
     
 void GateDoor::loop(){
-  return;
-  if ( (millis() - CycleTimeBegin) > PollTimeout ) {
-        
-    gate->TargetDoorState-> setVal( gate->CurrentDoorState->getVal() );
-    gate->CurrentDoorState-> setVal( !gate->CurrentDoorState->getVal() );
-        
-    CycleTimeBegin = millis();
+  uint32_t tempTime;
+  
+  tempTime = millis() - updateTime;
+  
+  if (cycleTime != 0){
+    if (gate->ClSensorPin.changed || gate->OpSensorPin.changed){
+      cycleTime = 0;
+      gate->ClSensorPin.changed = false;
+      gate->OpSensorPin.changed = false;
+      gate->PollCurrentState();
+    }
+  }
+  
+  if ( cycleTime != 0 && tempTime >= cycleTime  ){
+    gate->Stop();
+    PositionState->setVal(DOOR_STOPPED);
+    CurrentPosition->setVal(TargetPosition->getVal());
+    gate->CycleTimeBegin = millis();
+    cycleTime = 0; 
+    if (gate->CurrentDoorState->getVal()>0){
+      gate->CurrentDoorState->  setVal(CURRENT_DOOR_STATE_CLOSED);        
+    } else {gate->CurrentDoorState->  setVal(CURRENT_DOOR_STATE_OPEN);}
   }
 } //loop   
 

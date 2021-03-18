@@ -85,8 +85,9 @@ struct GateDoor : Service::Door{
   static nvs_handle gateNVS;
   bool      valid       = false; // положение неизвестно   
   struct CustomOpen GateDoorState;
-  uint32_t cycleTime;
+  uint32_t  cycleTime   = 0;
   uint32_t  updateTime  = 0;
+  uint32_t  delta       = 0;
   
   SpanCharacteristic *CurrentPosition;
   SpanCharacteristic *TargetPosition;

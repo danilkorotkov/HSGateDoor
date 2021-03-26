@@ -43,8 +43,8 @@ struct Sensor {
 
 struct CustomOpen {
     //uint32_t  updateTime  = 0;
-    bool      fromZeroPos = false;
-    bool      Direction   = 0; // 1 - opening 0 - closing
+    //bool      fromZeroPos = false;
+    //bool      Direction   = 0; // 1 - opening 0 - closing
     uint32_t  openTime    = 0;
     uint32_t  closeTime   = 0;
 };

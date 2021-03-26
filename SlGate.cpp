@@ -33,6 +33,9 @@ void IRAM_ATTR isr(void* arg) {
 void IRAM_ATTR onTimer(){
   portENTER_CRITICAL_ISR(&DoortimerMux);
   isTimered = true;
+  for (int i=0; i<3; i++) {
+    digitalWrite(ButtonArray[i],LOW);
+   } 
   portEXIT_CRITICAL_ISR(&DoortimerMux);
 };
 ///////////////////////////////////////////////////////////
@@ -154,10 +157,7 @@ void SL_GATE::loop(){
         ButtonTimer = NULL;
         isTimered = false;
         portEXIT_CRITICAL(&DoortimerMux);        
-        LOG1("----------Timer deinited----------\n");
-        for (int i=0; i<3; i++) {
-          digitalWrite(ButtonArray[i],LOW);
-        }        
+        LOG1("----------Timer deinited----------\n");     
       }
       
       // если сработал концевик, фиксируем время срабатывания, и игнорируем его изменения-дребезг после обработки события
@@ -266,12 +266,12 @@ void SL_GATE::FullyOpenExtern(){
           
   GatePosition->PositionState ->setVal(DOOR_OPENING);
   GatePosition->TargetPosition->setVal(FULLY_OPENED);
-  GatePosition->GateDoorState.Direction = 1;
+  //GatePosition->GateDoorState.Direction = 1;
   GatePosition->updateTime = millis();
   GatePosition->cycleTime = 0;
       
-  if (ClSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;
-  }else {GatePosition->GateDoorState.fromZeroPos = false;}
+  /*if (ClSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;
+  }else {GatePosition->GateDoorState.fromZeroPos = false;}*/
 }
 
 void SL_GATE::FullyCloseExtern(){
@@ -279,12 +279,12 @@ void SL_GATE::FullyCloseExtern(){
 
   GatePosition->PositionState ->setVal(DOOR_CLOSING);
   GatePosition->TargetPosition->setVal(FULLY_CLOSED);    
-  GatePosition->GateDoorState.Direction = 0;
+  //GatePosition->GateDoorState.Direction = 0;
   GatePosition->updateTime = millis();
   GatePosition->cycleTime = 0;
           
-  if (OpSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;
-  }else {GatePosition->GateDoorState.fromZeroPos = false;} 
+  /*if (OpSensorPin.stableState == SENSOR_CLOSED) {GatePosition->GateDoorState.fromZeroPos = true;
+  }else {GatePosition->GateDoorState.fromZeroPos = false;} */
 }
 
 void SL_GATE::FullyClosed(){
@@ -298,6 +298,7 @@ void SL_GATE::FullyClosed(){
 }
 
 void SL_GATE::Open(){
+  LOG1("call open routine\n");
   digitalWrite(ClosePin,LOW);
   digitalWrite(StopPin,LOW);
   digitalWrite(OpenPin,HIGH);
@@ -306,6 +307,7 @@ void SL_GATE::Open(){
 }
 
 void SL_GATE::Close(){
+  LOG1("call close routine\n");
   digitalWrite(OpenPin,LOW);
   digitalWrite(StopPin,LOW);
   digitalWrite(ClosePin,HIGH);
@@ -345,20 +347,26 @@ void GateDoor::NVS_init(){
 
 boolean GateDoor :: Calibrate(){
   uint32_t StartTime, cycleTime;
-  uint32_t TimeOut = 150*1000;
+  uint32_t TimeOut = 150000;
   
-
-  //phase 1
+  LOG1("calibration started\n");
+  LOG1("phase 1\n");
   gate->ClSensorPin.changed = false;
   gate->OpSensorPin.changed = false;
   StartTime = millis();
   if (digitalRead(gate->ClSensorPin.PIN) == SENSOR_RELEASED) {
     gate->Close();
-    while ( gate->ClSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
-    if ( (millis() - StartTime) > TimeOut ){return(false);}
+
+    while ( (gate->ClSensorPin.changed == false) && ((millis() - StartTime) < TimeOut) ){
+      LOG1("waiting for close\n");
+      LOG1("millis() - StartTime ");LOG1(millis() - StartTime); LOG1("ms\n");
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      }
+    if ( (millis() - StartTime) >= TimeOut ){LOG1("calibration failed\n");return(false);}
   }
 
-  //phase 2
+  LOG1("phase 2\n");
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
   gate->ClSensorPin.changed = false;
   gate->OpSensorPin.changed = false;
   
@@ -366,16 +374,22 @@ boolean GateDoor :: Calibrate(){
     gate->Open();
     cycleTime = millis();
     
-    while ( gate->OpSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
+    while ( gate->OpSensorPin.changed == false && (millis() - StartTime) < TimeOut ){
+      LOG1("waiting for open\n");
+      LOG1("millis() - StartTime ");LOG1(millis() - StartTime); LOG1("ms\n");
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      }
     
     if ( (millis() - StartTime) > TimeOut ){return(false);}
     
     if ( digitalRead(gate->OpSensorPin.PIN) == SENSOR_CLOSED ){
       GateDoorState.openTime = millis() - cycleTime;
+      LOG1("GateDoorState.openTime = ");LOG1(GateDoorState.openTime); LOG1("ms\n");
     }else {return(false);}
   } else {return(false);}
 
-  //phase 3
+  LOG1("phase 3\n");
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
   gate->ClSensorPin.changed = false;
   gate->OpSensorPin.changed = false;
 
@@ -388,6 +402,8 @@ boolean GateDoor :: Calibrate(){
 
       if ( digitalRead(gate->ClSensorPin.PIN) == SENSOR_CLOSED ){
         GateDoorState.closeTime = millis() - cycleTime;
+        LOG1("GateDoorState.closeTime = ");LOG1(GateDoorState.closeTime); LOG1("ms\n");
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
         gate->ClSensorPin.changed = false;
         gate->OpSensorPin.changed = false;
 
@@ -437,7 +453,7 @@ boolean GateDoor :: update(){
     }
 
     gate->Open();
-    GateDoorState.Direction = 1; 
+    //GateDoorState.Direction = 1; 
   }
 
   //close
@@ -461,7 +477,7 @@ boolean GateDoor :: update(){
     }
     
     gate->Close();
-    GateDoorState.Direction = 0;
+    //GateDoorState.Direction = 0;
     
   } else {
     NothingTODO();

@@ -9,11 +9,13 @@
 #define TARGET_DOOR_STATE_OPEN    0
 #define TARGET_DOOR_STATE_CLOSED  1
 #define TARGET_DOOR_STATE_UNKNOWN 255
-#define SENSOR_CLOSED   0
-#define SENSOR_RELEASED 1
+//#define SENSOR_CLOSED   0
+//#define SENSOR_RELEASED 1
+
+#define P_SENSOR_CLOSED   0
+#define P_SENSOR_RELEASED 1
 
 #include "SlGate.h"
-#include "Lock.h"
 
 ////////////////////////////
 int ButtonArray[3];
@@ -24,7 +26,11 @@ portMUX_TYPE DoortimerMux = portMUX_INITIALIZER_UNLOCKED;
 int OpenPin     = 18;                                       
 int ClosePin    = 19;
 int StopPin     = 21;
-  
+int JmpPin      = 13; // high на в промежуточном положении все High и  low - в крайних 
+
+int SENSOR_CLOSED   = 0;
+int SENSOR_RELEASED = 1;
+
 void IRAM_ATTR isr(void* arg) {
     Sensor* s = static_cast<Sensor*>(arg);
     s->changed = true;
@@ -50,11 +56,11 @@ void SL_GATE::initTimer(){
 SL_GATE::SL_GATE() : Service::GarageDoorOpener(){
 
   LOG1("Constructing Gate…\n");
-  CurrentDoorState  = new Characteristic::CurrentDoorState();
-  TargetDoorState =   new Characteristic::TargetDoorState();
+  CurrentDoorState  = new Characteristic::CurrentDoorState(CURRENT_DOOR_STATE_OPEN);
+  TargetDoorState =   new Characteristic::TargetDoorState(TARGET_DOOR_STATE_OPEN);
   ObstructionDetected=new Characteristic::ObstructionDetected();
   Name=new Characteristic::Name("Gate");
-  //GateDoor *GatePosition;  
+ 
                          
   pinMode(OpenPin,OUTPUT); 
   digitalWrite(OpenPin,LOW);
@@ -67,6 +73,11 @@ SL_GATE::SL_GATE() : Service::GarageDoorOpener(){
   pinMode(StopPin,OUTPUT);
   digitalWrite(StopPin,LOW);
   ButtonArray[2] = StopPin;
+
+  pinMode(JmpPin, INPUT_PULLUP);
+  SENSOR_CLOSED    ^= digitalRead(JmpPin);
+  SENSOR_RELEASED  ^= digitalRead(JmpPin);// инвертирование концевиков
+  if (digitalRead(JmpPin)) {LOG1("reverse sensors \n");}
     
   pinMode(ClSensorPin.PIN, INPUT_PULLUP);
   pinMode(OpSensorPin.PIN, INPUT_PULLUP);
@@ -76,6 +87,9 @@ SL_GATE::SL_GATE() : Service::GarageDoorOpener(){
   attachInterruptArg(ObSensorPin.PIN, isr, &ObSensorPin, CHANGE);
   
   GatePosition = new GateDoor(this);
+
+  ClSensorPin.stableState = digitalRead(ClSensorPin.PIN);
+  OpSensorPin.stableState = digitalRead(OpSensorPin.PIN);
   
   PollCurrentState();
 
@@ -86,20 +100,21 @@ SL_GATE::SL_GATE() : Service::GarageDoorOpener(){
 void SL_GATE::PollCurrentState(){
     LOG1("polling...\n");
   
-    if (digitalRead(ClSensorPin.PIN)      == SENSOR_CLOSED &&  CurrentDoorState-> getVal() !=CURRENT_DOOR_STATE_CLOSED)        
-                                                              {
+    if (digitalRead(ClSensorPin.PIN)      == SENSOR_CLOSED)   {if (CurrentDoorState-> getVal() !=CURRENT_DOOR_STATE_CLOSED)        
+                                                              {LOG1("polling CLOSED\n");
                                                               ClSensorPin.stableState = SENSOR_CLOSED;
                                                               FullyClosed();
-                                                              }
+                                                              }}
     
-    else if (digitalRead(OpSensorPin.PIN) == SENSOR_CLOSED && CurrentDoorState->  getVal() != CURRENT_DOOR_STATE_OPEN)   
-                                                              {
+    else if (digitalRead(OpSensorPin.PIN) == SENSOR_CLOSED)   {if (CurrentDoorState->  getVal() != CURRENT_DOOR_STATE_OPEN)   
+                                                              {LOG1("polling OPEN\n");
                                                               OpSensorPin.stableState = SENSOR_CLOSED;
                                                               FullyOpened();
-                                                              }
+                                                              }}
     
     else if                                                   (CurrentDoorState-> getVal() != CURRENT_DOOR_STATE_OPEN || GatePosition->PositionState->getVal() != DOOR_STOPPED)   
-                                                              {CurrentDoorState-> setVal(CURRENT_DOOR_STATE_OPEN);   
+                                                              {LOG1("polling all released\n");
+                                                              CurrentDoorState-> setVal(CURRENT_DOOR_STATE_OPEN);   
                                                               TargetDoorState->   setVal(TARGET_DOOR_STATE_OPEN);
                                                               OpSensorPin.stableState = SENSOR_RELEASED; 
                                                               ClSensorPin.stableState = SENSOR_RELEASED;
@@ -110,9 +125,9 @@ void SL_GATE::PollCurrentState(){
                                                               GatePosition->valid = false;
                                                               }
     
-    if (digitalRead(ObSensorPin.PIN)      == SENSOR_CLOSED && !ObstructionDetected->getVal())        
+    if (digitalRead(ObSensorPin.PIN)    == P_SENSOR_CLOSED && !ObstructionDetected->getVal())        
                                                               {ObstructionDetected->setVal(true);
-                                                              ObSensorPin.stableState = SENSOR_CLOSED;
+                                                              ObSensorPin.stableState = P_SENSOR_CLOSED;
 
                                                               GatePosition->ObstructionDetected->setVal(true);
                                                               }
@@ -161,9 +176,9 @@ void SL_GATE::loop(){
       }
       
       // если сработал концевик, фиксируем время срабатывания, и игнорируем его изменения-дребезг после обработки события
-      if (ClSensorPin.changed && (millis() - ClPortPollBegin)>PortPollTimeout) {
+      if (ClSensorPin.changed && (millis() - PortPollBegin)>PortPollTimeout) {
         ClSensorPin.changed = false;
-        ClPortPollBegin = millis();
+        PortPollBegin = millis();
         CycleTimeBegin = millis();
         // если новоее состояние отличается от предыдущего стабильного
         if (digitalRead(ClSensorPin.PIN) == SENSOR_CLOSED && ClSensorPin.stableState == SENSOR_RELEASED)   {
@@ -186,12 +201,13 @@ void SL_GATE::loop(){
                                                               ClSensorPin.stableState = SENSOR_RELEASED;
                                                               }
       
-      } else if ( ((millis() - ClPortPollBegin)>PortPollTimeout) && ClSensorPin.stableState == SENSOR_CLOSED && CurrentDoorState->getVal() != CURRENT_DOOR_STATE_CLOSED ){
+      } else if ( ((millis() - PortPollBegin)>PortPollTimeout) && (ClSensorPin.stableState == SENSOR_CLOSED) && (CurrentDoorState->getVal() != CURRENT_DOOR_STATE_CLOSED) ){
+                                                              LOG1("closed by timeout\n");
                                                               FullyClosed();}
       
-      if (OpSensorPin.changed && (millis() - OpPortPollBegin)>PortPollTimeout) {
+      if (OpSensorPin.changed && (millis() - PortPollBegin)>PortPollTimeout) {
         OpSensorPin.changed = false;
-        OpPortPollBegin = millis();
+        PortPollBegin = millis();
         CycleTimeBegin = millis();
         if (digitalRead(OpSensorPin.PIN) == SENSOR_CLOSED && OpSensorPin.stableState == SENSOR_RELEASED)   {
                                                               LOG1("----------OpSensorPin.SENSOR_CLOSED----------\n");
@@ -210,35 +226,36 @@ void SL_GATE::loop(){
                                                               OpSensorPin.stableState = SENSOR_RELEASED;
                                                               }     
       
-      } else if ( ((millis() - OpPortPollBegin)>PortPollTimeout) && OpSensorPin.stableState == SENSOR_CLOSED && CurrentDoorState->getVal() != CURRENT_DOOR_STATE_OPEN ){
+      } else if ( ((millis() - PortPollBegin)>PortPollTimeout) && OpSensorPin.stableState == SENSOR_CLOSED && CurrentDoorState->getVal() != CURRENT_DOOR_STATE_OPEN ){
+                                                              LOG1("opened by timeout\n");
                                                               FullyOpened();}
 
       if (ObSensorPin.changed && (millis() - ObPortPollBegin)>PortPollTimeout) {
         ObSensorPin.changed = false;
         ObPortPollBegin = millis();
         CycleTimeBegin = millis();
-        if (digitalRead(ObSensorPin.PIN) == SENSOR_CLOSED && ObSensorPin.stableState == SENSOR_RELEASED)    
+        if (digitalRead(ObSensorPin.PIN) == P_SENSOR_CLOSED && ObSensorPin.stableState == P_SENSOR_RELEASED)    
                                                               {LOG1("----------Optocoupler.SENSOR_CLOSED----------\n");
                                                                ObstructionDetected->setVal(true);
-                                                               ObSensorPin.stableState = SENSOR_CLOSED;
+                                                               ObSensorPin.stableState = P_SENSOR_CLOSED;
                                                                
                                                                GatePosition->ObstructionDetected->setVal(true);
                                                                }
         
-        if (digitalRead(ObSensorPin.PIN) == SENSOR_RELEASED && ObSensorPin.stableState == SENSOR_CLOSED)                                                        
+        if (digitalRead(ObSensorPin.PIN) == P_SENSOR_RELEASED && ObSensorPin.stableState == P_SENSOR_CLOSED)                                                        
                                                               {LOG1("----------Optocoupler.SENSOR_RELEASED----------\n");
                                                                ObstructionDetected->setVal(false);
-                                                               ObSensorPin.stableState = SENSOR_RELEASED;
+                                                               ObSensorPin.stableState = P_SENSOR_RELEASED;
 
                                                                GatePosition->ObstructionDetected->setVal(false);
                                                                }
       
-      } else if ( ((millis() - ObPortPollBegin)>PortPollTimeout) && ObSensorPin.stableState == SENSOR_CLOSED && !ObstructionDetected->getVal() )
+      } else if ( ((millis() - ObPortPollBegin)>PortPollTimeout) && ObSensorPin.stableState == P_SENSOR_CLOSED && !ObstructionDetected->getVal() )
                                                               {ObstructionDetected->setVal(true);
                                                               GatePosition->ObstructionDetected->setVal(true);
                                                               }
         
-        else if ( ((millis() - ObPortPollBegin)>PortPollTimeout) && ObSensorPin.stableState == SENSOR_RELEASED && ObstructionDetected->getVal() )
+        else if ( ((millis() - ObPortPollBegin)>PortPollTimeout) && ObSensorPin.stableState == P_SENSOR_RELEASED && ObstructionDetected->getVal() )
                                                               {ObstructionDetected->setVal(false);
                                                               GatePosition->ObstructionDetected->setVal(false);
                                                               }
@@ -289,7 +306,7 @@ void SL_GATE::FullyCloseExtern(){
 
 void SL_GATE::FullyClosed(){
   CurrentDoorState-> setVal(CURRENT_DOOR_STATE_CLOSED); 
-  TargetDoorState->   setVal(TARGET_DOOR_STATE_CLOSED);
+  TargetDoorState->  setVal(TARGET_DOOR_STATE_CLOSED);
   
   GatePosition->CurrentPosition->setVal(FULLY_CLOSED);
   GatePosition->TargetPosition->setVal(FULLY_CLOSED);
@@ -327,7 +344,7 @@ void SL_GATE::Stop(){
 GateDoor::GateDoor(SL_GATE* gate) : Service::Door(){
       CurrentPosition      = new Characteristic::CurrentPosition(50);
       TargetPosition       = new Characteristic::TargetPosition(50);
-      PositionState        = new Characteristic::PositionState(2);
+      PositionState        = new Characteristic::PositionState(DOOR_STOPPED);
       ObstructionDetected  = new Characteristic::ObstructionDetected(false);
 
       this->gate=gate;

@@ -17,8 +17,8 @@
 #define TARGET_DOOR_STATE_CLOSED  1
 #define TARGET_DOOR_STATE_UNKNOWN 255
 //position sensor
-#define SENSOR_CLOSED   0
-#define SENSOR_RELEASED 1
+//#define SENSOR_CLOSED   0
+//#define SENSOR_RELEASED 1
 //door
 #define FULLY_OPENED 100
 #define FULLY_CLOSED 0
@@ -34,6 +34,9 @@ struct CustomOpen;
 
 void IRAM_ATTR isr(void*);
 void IRAM_ATTR onTimer();
+
+//int SENSOR_CLOSED   = 0;
+//int SENSOR_RELEASED = 1;
 
 struct Sensor {
     uint8_t PIN;
@@ -51,14 +54,14 @@ struct CustomOpen {
 
 struct SL_GATE : Service::GarageDoorOpener {         // First we create a derived class from the HomeSpan 
 
-  struct Sensor OpSensorPin = {22, false, SENSOR_RELEASED};
-  struct Sensor ClSensorPin = {23, false, SENSOR_RELEASED};
-  struct Sensor ObSensorPin = {17, false, SENSOR_RELEASED};
+  struct Sensor OpSensorPin = {22, false, 1};
+  struct Sensor ClSensorPin = {23, false, 1};
+  struct Sensor ObSensorPin = {17, false, 1};
   
   uint32_t CycleTimeout = 60000; //60s
   uint32_t CycleTimeBegin;
-  uint32_t PortPollTimeout = 200;
-  uint32_t ClPortPollBegin, OpPortPollBegin, ObPortPollBegin = 0;
+  uint32_t PortPollTimeout = 500;
+  uint32_t PortPollBegin, ObPortPollBegin = 0;
   
   SpanCharacteristic *CurrentDoorState;              
   SpanCharacteristic *TargetDoorState;

@@ -22,7 +22,7 @@ void setup() {
   homeSpan.setLogLevel(1);
 
   homeSpan.setSketchVersion("2.1.1");
-  homeSpan.enableOTA();
+  homeSpan.enableOTA(); //homespan-ota
   
   homeSpan.begin(Category::GarageDoorOpeners,"Sl Gate");
   

@@ -60,7 +60,7 @@ struct SL_GATE : Service::GarageDoorOpener {         // First we create a derive
   
   uint32_t CycleTimeout = 60000; //60s
   uint32_t CycleTimeBegin;
-  uint32_t PortPollTimeout = 500;
+  uint32_t PortPollTimeout = 700;
   uint32_t PortPollBegin, ObPortPollBegin = 0;
   
   SpanCharacteristic *CurrentDoorState;              
@@ -109,6 +109,7 @@ struct GateDoor : Service::Door{
   uint32_t PollTimeout = 10000;
   GateDoor(SL_GATE* gate);
   void NVS_init();
+  void NVS_del();
   
   boolean update();
   void loop();

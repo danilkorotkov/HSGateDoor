@@ -360,21 +360,34 @@ void GateDoor::NVS_init(){
   if(!nvs_get_blob(gateNVS,"GATEDATA",NULL,&nvslen)) {                       // if found GATE data in NVS
     LOG1("----------Found GATE storage----------\n");
     nvs_get_blob(gateNVS,"GATEDATA",&GateDoorState,&nvslen); }              // retrieve data  
+
+  if (GateDoorState.closeTime == 0 || GateDoorState.openTime == 0) {NVS_del();}
+}
+
+void GateDoor::NVS_del(){
+  LOG1("----------del door storage----------\n");
+  GateDoorState.closeTime = 0;
+  GateDoorState.openTime = 0;
+  nvs_set_blob(gateNVS,"GATEDATA",&GateDoorState,sizeof(GateDoorState));
+  nvs_commit(gateNVS);
+  
 }
 
 boolean GateDoor :: Calibrate(){
   uint32_t StartTime, cycleTime;
-  uint32_t TimeOut = 150000;
+  uint32_t TimeOut = 120000;
   
   LOG1("calibration started\n");
   LOG1("phase 1\n");
   gate->ClSensorPin.changed = false;
   gate->OpSensorPin.changed = false;
   StartTime = millis();
+
   if (digitalRead(gate->ClSensorPin.PIN) == SENSOR_RELEASED) {
     gate->Close();
 
-    while ( (gate->ClSensorPin.changed == false) && ((millis() - StartTime) < TimeOut) ){
+    //while ( (gate->ClSensorPin.changed == false) && ((millis() - StartTime) < TimeOut) ){
+    while ( (digitalRead(gate->ClSensorPin.PIN) == SENSOR_RELEASED) && ((millis() - StartTime) < TimeOut) ){
       LOG1("waiting for close\n");
       LOG1("millis() - StartTime ");LOG1(millis() - StartTime); LOG1("ms\n");
       vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -383,7 +396,7 @@ boolean GateDoor :: Calibrate(){
   }
 
   LOG1("phase 2\n");
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  vTaskDelay(3000 / portTICK_PERIOD_MS);
   gate->ClSensorPin.changed = false;
   gate->OpSensorPin.changed = false;
   
@@ -391,7 +404,8 @@ boolean GateDoor :: Calibrate(){
     gate->Open();
     cycleTime = millis();
     
-    while ( gate->OpSensorPin.changed == false && (millis() - StartTime) < TimeOut ){
+    //while ( gate->OpSensorPin.changed == false && (millis() - StartTime) < TimeOut ){
+    while ( (digitalRead(gate->OpSensorPin.PIN) == SENSOR_RELEASED) && (millis() - StartTime) < TimeOut ){
       LOG1("waiting for open\n");
       LOG1("millis() - StartTime ");LOG1(millis() - StartTime); LOG1("ms\n");
       vTaskDelay(1000 / portTICK_PERIOD_MS);
@@ -399,8 +413,9 @@ boolean GateDoor :: Calibrate(){
     
     if ( (millis() - StartTime) > TimeOut ){return(false);}
     
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
     if ( digitalRead(gate->OpSensorPin.PIN) == SENSOR_CLOSED ){
-      GateDoorState.openTime = millis() - cycleTime;
+      GateDoorState.openTime = millis() - cycleTime - 3000;
       LOG1("GateDoorState.openTime = ");LOG1(GateDoorState.openTime); LOG1("ms\n");
     }else {return(false);}
   } else {return(false);}
@@ -414,20 +429,28 @@ boolean GateDoor :: Calibrate(){
     gate->Close();
     cycleTime = millis();
 
-    while ( gate->ClSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
+    //while ( gate->ClSensorPin.changed == false || (millis() - StartTime) < TimeOut ){}
+    while ( (digitalRead(gate->ClSensorPin.PIN) == SENSOR_RELEASED) && ((millis() - StartTime) < TimeOut) ){
+      LOG1("waiting for close\n");
+      LOG1("millis() - StartTime ");LOG1(millis() - StartTime); LOG1("ms\n");
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      }
     if ( (millis() - StartTime) > TimeOut ){return(false);}
 
-      if ( digitalRead(gate->ClSensorPin.PIN) == SENSOR_CLOSED ){
-        GateDoorState.closeTime = millis() - cycleTime;
-        LOG1("GateDoorState.closeTime = ");LOG1(GateDoorState.closeTime); LOG1("ms\n");
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        gate->ClSensorPin.changed = false;
-        gate->OpSensorPin.changed = false;
+    vTaskDelay(3000 / portTICK_PERIOD_MS);
+    if ( digitalRead(gate->ClSensorPin.PIN) == SENSOR_CLOSED ){
+      GateDoorState.closeTime = millis() - cycleTime  - 3000;
+      LOG1("GateDoorState.closeTime = ");LOG1(GateDoorState.closeTime); LOG1("ms\n");
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      gate->ClSensorPin.changed = false;
+      gate->OpSensorPin.changed = false;
 
-        nvs_set_blob(gateNVS,"GATEDATA",&GateDoorState,sizeof(GateDoorState));
-        nvs_commit(gateNVS);
+      CurrentPosition->setVal(0);
+
+      nvs_set_blob(gateNVS,"GATEDATA",&GateDoorState,sizeof(GateDoorState));
+      nvs_commit(gateNVS);
         
-        return(true);
+      return(true);
         
       }else {return(false);}
     
@@ -448,6 +471,7 @@ boolean GateDoor :: update(){
   
   if (GateDoorState.openTime == 0 || GateDoorState.closeTime == 0) {
     if (!Calibrate()) {
+      NVS_del();
       NothingTODO();
       return (true);
     }
